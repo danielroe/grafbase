@@ -38,6 +38,7 @@ backend = { package = "grafbase-local-backend", path = "../backend", version = "
 common = { package = "grafbase-local-common", path = "../common", version = "0.27.0" }
 
 [dev-dependencies]
+assert_matches = "1"
 async-graphql = "5"
 async-graphql-axum = "5"
 async-trait = "0.1"
@@ -49,11 +50,13 @@ dirs = "5"
 duct = "0.13"
 fslock = "0.2"
 insta = { version = "1.29", features = ["json", "redactions", "yaml"] }
+itertools = "0.11"
 json_dotpath = "1"
 jwt-compact = { version = "0.8.0-beta.1", default-features = false, features = [
   "clock",
   "rsa",
 ] }
+nix = "0.26"
 rand = "0.8"
 reqwest = { version = "0.11", features = [
   "rustls-tls",

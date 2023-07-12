@@ -8,11 +8,11 @@ use cfg_if::cfg_if;
 use common::consts::{GRAFBASE_DIRECTORY_NAME, GRAFBASE_SCHEMA_FILE_NAME};
 use duct::{cmd, Handle};
 use std::env::VarError;
+use std::mem;
 use std::path::Path;
 use std::process::Output;
 use std::sync::Arc;
 use std::{env, fs, io::Write, path::PathBuf};
-use std::{io, mem};
 use tempfile::{tempdir, TempDir};
 
 pub struct Environment {
@@ -53,6 +53,12 @@ fn get_free_port() -> u16 {
     std::fs::write(&port_number_file_path, port_number.to_string()).unwrap();
     lock_file.unlock().unwrap();
     port_number
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum OutputType {
+    Stdout,
+    Stderr,
 }
 
 impl Environment {
@@ -282,7 +288,9 @@ impl Environment {
         self
     }
 
-    pub fn grafbase_dev(&mut self) {
+    pub fn grafbase_dev(&mut self) -> u32 {
+        use itertools::Itertools;
+
         let command = cmd!(
             cargo_bin("grafbase"),
             "--trace",
@@ -292,12 +300,18 @@ impl Environment {
             "--port",
             self.port.to_string()
         )
+        .stdout_capture()
+        .stderr_to_stdout()
         .dir(&self.directory);
         #[cfg(feature = "dynamodb")]
         let command = command.env("DYNAMODB_TABLE_NAME", &self.dynamodb_env.table_name);
         let command = command.start().unwrap();
 
+        let (pid,) = command.pids().into_iter().collect_tuple().unwrap();
+
         self.commands.push(command);
+
+        pid
     }
 
     pub fn grafbase_dev_with_home_flag(&mut self) {
@@ -323,18 +337,15 @@ impl Environment {
         self.commands.push(command);
     }
 
-    pub fn grafbase_dev_output(&mut self) -> io::Result<Output> {
-        let command = cmd!(
-            cargo_bin("grafbase"),
-            "dev",
-            "--disable-watch",
-            "--port",
-            self.port.to_string()
-        )
-        .dir(&self.directory);
-        #[cfg(feature = "dynamodb")]
-        let command = command.env("DYNAMODB_TABLE_NAME", &self.dynamodb_env.table_name);
-        command.start()?.into_output()
+    pub fn last_command_output(&mut self, output_type: OutputType) -> String {
+        let command = self.commands.pop().expect("there must be a last command");
+        let output = command.wait().expect("must have output available");
+        assert!(output.status.success());
+        String::from_utf8(match output_type {
+            OutputType::Stdout => output.stdout.clone(),
+            OutputType::Stderr => output.stderr.clone(),
+        })
+        .expect("must be valid UTF-8")
     }
 
     pub fn set_variables<K, V>(&mut self, variables: impl IntoIterator<Item = (K, V)>)

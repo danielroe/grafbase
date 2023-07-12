@@ -184,6 +184,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
 name = "async-attributes"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -988,7 +994,7 @@ dependencies = [
  "autocfg",
  "cfg-if",
  "crossbeam-utils",
- "memoffset",
+ "memoffset 0.9.0",
  "scopeguard",
 ]
 
@@ -1492,7 +1498,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "374a3a53c1bd5fb31b10084229290eafb0a05f260ec90f1f726afffda4877a8a"
 dependencies = [
  "fastdivide",
- "itertools",
+ "itertools 0.10.5",
  "log",
  "ownedbytes",
  "tantivy-bitpacker",
@@ -1785,6 +1791,7 @@ dependencies = [
 name = "grafbase"
 version = "0.27.0"
 dependencies = [
+ "assert_matches",
  "async-graphql",
  "async-graphql-axum",
  "async-trait",
@@ -1808,9 +1815,11 @@ dependencies = [
  "indoc",
  "inquire",
  "insta",
+ "itertools 0.11.0",
  "json_dotpath",
  "jwt-compact",
  "log",
+ "nix",
  "once_cell",
  "os_type",
  "rand 0.8.5",
@@ -1895,7 +1904,7 @@ dependencies = [
  "grafbase-local-common",
  "hyper",
  "integer-encoding",
- "itertools",
+ "itertools 0.10.5",
  "log",
  "notify",
  "notify-debouncer-mini",
@@ -2467,6 +2476,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2733,6 +2751,15 @@ dependencies = [
 
 [[package]]
 name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
+name = "memoffset"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
@@ -2884,6 +2911,8 @@ dependencies = [
  "bitflags",
  "cfg-if",
  "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
  "static_assertions",
 ]
 
@@ -4348,7 +4377,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c12bc9199d1db8234678b7051747c07f517cdcf019262d1847b94ec8b1aee3e"
 dependencies = [
- "itertools",
+ "itertools 0.10.5",
  "nom",
  "unicode_categories",
 ]
@@ -4598,7 +4627,7 @@ dependencies = [
  "fastdivide",
  "fastfield_codecs",
  "htmlescape",
- "itertools",
+ "itertools 0.10.5",
  "levenshtein_automata",
  "log",
  "lru",

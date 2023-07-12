@@ -1,6 +1,7 @@
 #![allow(unused_crate_dependencies)]
 mod utils;
 
+use assert_matches::assert_matches;
 use backend::project::ConfigType;
 use serde_json::{json, Value};
 use utils::consts::{DEFAULT_CREATE, DEFAULT_QUERY, DEFAULT_SCHEMA, DEFAULT_UPDATE};
@@ -100,4 +101,67 @@ fn dev() {
     assert_eq!(dot_get!(updated_todo_list, "likes", i32), 10);
     assert_eq!(dot_get!(updated_todo_list, "status", String), "IN_PROGRESS");
     assert_eq!(dot_get_opt!(updated_todo_list, "tags", Vec<String>), None);
+}
+
+#[test]
+fn resolver_crashing_on_spawn() {
+    let mut env = Environment::init();
+    env.grafbase_init(ConfigType::GraphQL);
+    env.write_schema(
+        r#"
+            extend type Query {
+                hello: String! @resolver(name: "hello")
+            }
+        "#,
+    );
+    env.write_resolver(
+        "hello.js",
+        r#"
+            const userAgent = navigator.userAgent;
+            export default function Resolver(parent, args, context, info) {
+                return userAgent;
+            }
+        "#,
+    );
+    let pid = env.grafbase_dev();
+    let client = env.create_client().with_api_key();
+    client.poll_endpoint(30, 300);
+
+    let mut response = client
+        .gql::<Value>(
+            r#"
+                {
+                    hello
+                }
+            "#,
+        )
+        .send();
+    assert_matches!(response.get("data").filter(|value| !value.is_null()), None);
+    assert_eq!(
+        response
+            .get_mut("errors")
+            .and_then(|errors| errors.as_array_mut())
+            .and_then(|errors| {
+                assert_matches!(errors.as_slice(), [_]);
+                errors.pop()
+            }),
+        Some(serde_json::json!({
+            "path": vec!["hello"],
+            "locations": vec![serde_json::json!({
+                "line": 3,
+                "column": 21
+            })],
+            "message": "Invocation failed."
+        }))
+    );
+
+    let kill_thread = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGINT).unwrap();
+    });
+
+    let stderr = env.last_command_output(utils::environment::OutputType::Stdout);
+    insta::assert_snapshot!(stderr);
+
+    kill_thread.join().unwrap();
 }
