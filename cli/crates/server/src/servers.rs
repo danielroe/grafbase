@@ -1,6 +1,6 @@
 use crate::consts::{
     ASSET_VERSION_FILE, CONFIG_PARSER_SCRIPT, GENERATED_SCHEMAS_DIR, GIT_IGNORE_CONTENTS, GIT_IGNORE_FILE,
-    MIN_NODE_VERSION, SCHEMA_PARSER_DIR, SCHEMA_PARSER_INDEX, TS_NODE_SCRIPT_PATH,
+    MINIFLARE_JS_WRAPPER_PATH, MIN_NODE_VERSION, SCHEMA_PARSER_DIR, SCHEMA_PARSER_INDEX, TS_NODE_SCRIPT_PATH,
 };
 use crate::error_server;
 use crate::event::{wait_for_event, wait_for_event_and_match, Event};
@@ -215,7 +215,7 @@ async fn spawn_servers(
         .env("BRIDGE_PORT", bridge_port.to_string())
         .env("WORKER_PORT", worker_port.to_string())
         .env("REGISTRY", registry_path)
-        .arg(crate::consts::MINIFLARE_CLI_JS_PATH)
+        .arg(MINIFLARE_JS_WRAPPER_PATH)
         .stdout(if tracing { Stdio::inherit() } else { Stdio::piped() })
         .stderr(if tracing { Stdio::inherit() } else { Stdio::piped() })
         .current_dir(&environment.user_dot_grafbase_path)

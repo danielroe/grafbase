@@ -208,7 +208,7 @@ pub async fn spawn_miniflare(
 
     let miniflare_path = environment
         .user_dot_grafbase_path
-        .join(crate::consts::MINIFLARE_CLI_JS_PATH)
+        .join(crate::consts::MINIFLARE_UDF_JS_WRAPPER_PATH)
         .canonicalize()
         .unwrap();
 
