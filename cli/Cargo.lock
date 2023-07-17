@@ -1886,6 +1886,7 @@ version = "0.27.0"
 dependencies = [
  "axum",
  "base64 0.21.2",
+ "cfg-if",
  "chrono",
  "combine 4.6.6",
  "dotenv",

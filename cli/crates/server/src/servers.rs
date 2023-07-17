@@ -199,77 +199,40 @@ async fn spawn_servers(
     });
 
     trace!("waiting for bridge ready");
+
     tokio::select! {
         _ = wait_for_event(receiver, |event| *event == Event::BridgeReady) => (),
         result = &mut bridge_handle => {result??; return Ok(());}
     };
+
     trace!("bridge ready");
 
     let registry_path = project.registry_path.to_str().ok_or(ServerError::ProjectPath)?;
 
-    trace!("spawning miniflare for the main worker");
-
-    let worker_port_string = worker_port.to_string();
-    let bridge_port_binding_string = format!("BRIDGE_PORT={bridge_port}");
-    let registry_text_blob_string = format!("REGISTRY={registry_path}");
-
-    #[allow(unused_mut)]
-    let mut miniflare_arguments = Vec::from(
-        [
-            // used by miniflare when running normally as well
-            "--experimental-vm-modules",
-            crate::consts::MINIFLARE_CLI_JS_PATH,
-            "--modules",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &worker_port_string,
-            "--no-update-check",
-            "--no-cf-fetch",
-            "--do-persist",
-            "--wrangler-config",
-            "./wrangler.toml",
-            "--binding",
-            &bridge_port_binding_string,
-            "--text-blob",
-            &registry_text_blob_string,
-            "--mount",
-            "stream-router=./stream-router",
-        ]
-        .map(Cow::Borrowed),
-    );
-
-    #[cfg(feature = "dynamodb")]
-    {
-        #[allow(clippy::panic)]
-        fn get_env(key: &str) -> String {
-            let val = std::env::var(key).unwrap_or_else(|_| panic!("Environment variable not found:{key}"));
-            format!("{key}={val}")
-        }
-
-        miniflare_arguments.extend(
-            vec![
-                "AWS_ACCESS_KEY_ID",
-                "AWS_SECRET_ACCESS_KEY",
-                "DYNAMODB_REGION",
-                "DYNAMODB_TABLE_NAME",
-            ]
-            .iter()
-            .map(|key| get_env(key))
-            .flat_map(|env| ["--binding".into(), env.into()]),
-        );
-    }
-
     let mut miniflare = Command::new("node");
+
     miniflare
-        // Unbounded worker limit
-        .env("MINIFLARE_SUBREQUEST_LIMIT", "1000")
-        .args(miniflare_arguments.iter().map(std::convert::AsRef::as_ref))
+        .env("BRIDGE_PORT", bridge_port.to_string())
+        .env("WORKER_PORT", worker_port.to_string())
+        .env("REGISTRY", registry_path)
+        .arg(crate::consts::MINIFLARE_CLI_JS_PATH)
         .stdout(if tracing { Stdio::inherit() } else { Stdio::piped() })
         .stderr(if tracing { Stdio::inherit() } else { Stdio::piped() })
         .current_dir(&environment.user_dot_grafbase_path)
         .kill_on_drop(true);
+
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "dynamodb")] {
+            let keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "DYNAMODB_REGION", "DYNAMODB_TABLE_NAME"];
+
+            for key in keys {
+                miniflare.env(key, std::env::var(key).expect("an environment variable was not defined"));
+            }
+        }
+    }
+
     trace!("Spawning {miniflare:?}");
+
     let miniflare = miniflare.spawn().map_err(ServerError::MiniflareCommandError)?;
 
     let _: Result<_, _> = sender.send(ServerMessage::Ready(worker_port));
