@@ -13,7 +13,6 @@ repository.workspace = true
 [dependencies]
 axum = "0.6"
 base64 = "0.21"
-cfg-if = "1"
 chrono = { version = "0.4", features = ["serde"] }
 combine = "4"
 dotenv = "0.15"

@@ -221,13 +221,19 @@ async fn spawn_servers(
         .current_dir(&environment.user_dot_grafbase_path)
         .kill_on_drop(true);
 
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "dynamodb")] {
-            let keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "DYNAMODB_REGION", "DYNAMODB_TABLE_NAME"];
+    #[cfg(feature = "dynamodb")]
+    {
+        use std::env;
 
-            for key in keys {
-                miniflare.env(key, std::env::var(key).expect("an environment variable was not defined"));
-            }
+        let keys = [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "DYNAMODB_REGION",
+            "DYNAMODB_TABLE_NAME",
+        ];
+
+        for key in keys {
+            miniflare.env(key, env::var(key).expect("an environment variable was not defined"));
         }
     }
 
