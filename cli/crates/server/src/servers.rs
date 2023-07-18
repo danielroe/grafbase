@@ -243,10 +243,8 @@ async fn spawn_servers(
 
     let _: Result<_, _> = sender.send(ServerMessage::Ready(worker_port));
 
-    let miniflare_output_result = miniflare.wait_with_output();
-
     tokio::select! {
-        result = miniflare_output_result => {
+        result = miniflare.wait_with_output() => {
             let output = result.map_err(ServerError::MiniflareCommandError)?;
 
             output
