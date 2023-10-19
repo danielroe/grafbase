@@ -3,9 +3,10 @@
 mod analyze;
 mod codegen;
 mod error;
+mod type_extensions_from_resolver;
 
 use self::error::CodegenError;
-use std::fmt;
+use std::{ffi, fmt, path::Path};
 
 /// Generate a TypeScript module that contains input and output type definitions for resolver
 /// authoring purposes, based on the passed in SDL schema.
@@ -17,4 +18,24 @@ where
     let analyzed_schema = analyze::analyze(&parsed_schema);
     codegen::generate_module(&analyzed_schema, out)?;
     Ok(())
+}
+
+/// Returns either a GraphQL SDL string that defines the resolvers as type extensions, or errors.
+pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> Result<String, String> {
+    let mut out = String::new();
+    let mut errs = String::new();
+
+    for entry in walkdir::WalkDir::new(resolvers_root) {
+        // Ignore IO errors. Ok?
+        let Ok(entry) = entry else { continue };
+
+        if entry.path().extension() != Some(ffi::OsStr::new(".ts")) {
+            continue;
+        }
+    }
+
+    match errs.as_str() {
+        "" => Err(errs),
+        _ => Ok(out),
+    }
 }
