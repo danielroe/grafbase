@@ -11,7 +11,7 @@ fn update_expect() -> bool {
 fn run_test(path: &Path) -> datatest_stable::Result<()> {
     let expected_file_path = path.with_file_name("expected.out");
     let expected = fs::read_to_string(&expected_file_path).unwrap_or_default();
-    let actual = match typed_resolvers::generate_type_extensions_from_resolvers(path) {
+    let actual = match typed_resolvers::generate_type_extensions_from_resolvers(&path.with_file_name("resolvers")) {
         Ok(graphql) => graphql,
         Err(errs) => errs,
     };

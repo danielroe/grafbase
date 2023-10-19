@@ -25,17 +25,19 @@ pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> Result<
     let mut out = String::new();
     let mut errs = String::new();
 
-    for entry in walkdir::WalkDir::new(resolvers_root) {
-        // Ignore IO errors. Ok?
-        let Ok(entry) = entry else { continue };
-
-        if entry.path().extension() != Some(ffi::OsStr::new(".ts")) {
+    for entry in walkdir::WalkDir::new(resolvers_root)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        if entry.path().extension() != Some(ffi::OsStr::new("ts")) {
             continue;
         }
+
+        type_extensions_from_resolver::object_extension_for_resolver(entry.path(), &mut out, &mut errs);
     }
 
     match errs.as_str() {
-        "" => Err(errs),
-        _ => Ok(out),
+        "" => Ok(out),
+        _ => Err(errs),
     }
 }

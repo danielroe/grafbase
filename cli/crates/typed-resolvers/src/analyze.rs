@@ -209,7 +209,7 @@ pub(crate) struct AnalyzedSchema<'doc> {
     pub(crate) definitions: Vec<Definition>,
 
     // Index mapping names to definitions.
-    definition_names: HashMap<&'doc str, Definition>,
+    pub(crate) definition_names: HashMap<&'doc str, Definition>,
 
     pub(crate) objects: Vec<Object<'doc>>,
 
