@@ -6806,6 +6806,8 @@ dependencies = [
  "datatest-stable",
  "graphql-parser",
  "similar",
+ "swc_common",
+ "swc_ecma_ast",
  "swc_ecma_parser",
  "walkdir",
 ]

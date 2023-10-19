@@ -10,8 +10,11 @@ publish = false
 
 [dependencies]
 graphql-parser = "0.4"
-swc_ecma_parser = "0.141.2"
 walkdir = "2"
+
+swc_ecma_parser = "0.141.2"
+swc_ecma_ast = "0.110.0"
+swc_common = "0.33"
 
 [dev-dependencies]
 similar = "2"
