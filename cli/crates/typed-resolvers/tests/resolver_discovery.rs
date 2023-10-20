@@ -1,6 +1,11 @@
 #![allow(clippy::panic, unused_crate_dependencies)]
 
-use std::{fs, path::Path, sync::OnceLock};
+use std::{
+    fmt::Write,
+    fs,
+    path::Path,
+    sync::{Once, OnceLock},
+};
 
 fn update_expect() -> bool {
     static UPDATE_EXPECT: OnceLock<bool> = OnceLock::new();
@@ -9,11 +14,28 @@ fn update_expect() -> bool {
 
 #[allow(clippy::unnecessary_wraps)] // we can't change the signature expected by datatest_stable
 fn run_test(path: &Path) -> datatest_stable::Result<()> {
+    static MIETTE_SETUP: Once = Once::new();
+    MIETTE_SETUP.call_once(|| {
+        miette::set_hook(Box::new(|_| {
+            Box::new(miette::GraphicalReportHandler::new().with_theme(miette::GraphicalTheme::unicode_nocolor()))
+        }))
+        .unwrap();
+    });
+
     let expected_file_path = path.with_file_name("expected.out");
     let expected = fs::read_to_string(&expected_file_path).unwrap_or_default();
-    let actual = match typed_resolvers::generate_type_extensions_from_resolvers(&path.with_file_name("resolvers")) {
-        Ok(graphql) => graphql,
-        Err(errs) => errs,
+    let actual = {
+        let typed_resolvers::AnalyzedResolvers {
+            type_extensions: mut actual,
+            errs,
+        } = typed_resolvers::generate_type_extensions_from_resolvers(&path.with_file_name("resolvers"));
+        if !errs.is_empty() {
+            actual.push_str("\n=== ERRORS ===\n");
+            for err in errs {
+                writeln!(&mut actual, "{err:?}").unwrap();
+            }
+        }
+        actual
     };
 
     if expected == actual {

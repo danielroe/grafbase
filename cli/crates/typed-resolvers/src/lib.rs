@@ -20,10 +20,15 @@ where
     Ok(())
 }
 
+pub struct AnalyzedResolvers {
+    pub type_extensions: String,
+    pub errs: Vec<miette::Error>,
+}
+
 /// Returns either a GraphQL SDL string that defines the resolvers as type extensions, or errors.
-pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> Result<String, String> {
+pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> AnalyzedResolvers {
     let mut out = String::new();
-    let mut errs = String::new();
+    let mut errs = Vec::new();
 
     for entry in walkdir::WalkDir::new(resolvers_root)
         .into_iter()
@@ -34,12 +39,12 @@ pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> Result<
         }
 
         if let Err(err) = type_extensions_from_resolver::object_extension_for_resolver(entry.path(), &mut out) {
-            writeln!(&mut errs, "{err}").unwrap();
+            errs.push(err);
         }
     }
 
-    match errs.as_str() {
-        "" => Ok(out),
-        _ => Err(errs),
+    AnalyzedResolvers {
+        type_extensions: out,
+        errs,
     }
 }

@@ -15,7 +15,7 @@ walkdir = "2"
 swc_ecma_parser = "0.141.2"
 swc_ecma_ast = "0.110.0"
 swc_common = "0.33"
-miette = "5.10.0"
+miette = { version = "5.10.0", features = ["fancy"] }
 thiserror = "1.0.49"
 
 [dev-dependencies]

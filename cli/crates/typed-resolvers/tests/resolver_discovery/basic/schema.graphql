@@ -3,3 +3,12 @@ type User {
     firstName: String!
     lastName: String
 }
+
+type ErrorReport {
+  id: ID!
+  deployment: Deployment
+}
+
+type Deployment {
+  id: ID!
+}

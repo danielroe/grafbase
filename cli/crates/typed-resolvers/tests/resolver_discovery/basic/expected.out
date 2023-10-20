@@ -1,3 +1,3 @@
 extend type User { fullName: string }
-extend type User { friends: [User!]! }
-extend type User { stronger: boolean! }
+extend type User { friends(first: number!): [User!]! }
+extend type User { stronger(otherUser: ID!): boolean! }

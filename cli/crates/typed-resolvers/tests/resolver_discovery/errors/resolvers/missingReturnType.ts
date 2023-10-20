@@ -1,0 +1,7 @@
+import { User } from '@grafbase/generated'
+import { Context } from '@grafbase/sdk'
+
+export default async function friends(_user: User, _args: { first: number }, _context: Context) {
+    return []
+}
+
