@@ -6,7 +6,7 @@ mod error;
 mod type_extensions_from_resolver;
 
 use self::error::CodegenError;
-use std::{ffi, fmt, fmt::Write, path::Path};
+use std::{ffi, fmt, path::Path};
 
 /// Generate a TypeScript module that contains input and output type definitions for resolver
 /// authoring purposes, based on the passed in SDL schema.

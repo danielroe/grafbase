@@ -1,0 +1,13 @@
+=== ERRORS ===
+
+  × Could not infer GraphQL field definition for a resolver.
+
+Error:   × Could not infer what type the resolver is attached to.
+   ╭─[./tests/resolver_discovery/bad_parents/resolvers/noTypeAnnotation.ts:3:1]
+ 3 │ 
+ 4 │ export default async function noTypeAnnotation(parent): Promise<string> {
+   ·                                                 ───┬──
+   ·                                                    ╰── Missing type annotation.
+ 5 │     return "???"
+   ╰────
+

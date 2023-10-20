@@ -12,15 +12,24 @@ fn update_expect() -> bool {
     *UPDATE_EXPECT.get_or_init(|| std::env::var("UPDATE_EXPECT").is_ok())
 }
 
-#[allow(clippy::unnecessary_wraps)] // we can't change the signature expected by datatest_stable
-fn run_test(path: &Path) -> datatest_stable::Result<()> {
+fn init_miette() {
     static MIETTE_SETUP: Once = Once::new();
     MIETTE_SETUP.call_once(|| {
         miette::set_hook(Box::new(|_| {
-            Box::new(miette::GraphicalReportHandler::new().with_theme(miette::GraphicalTheme::unicode_nocolor()))
+            Box::new(
+                miette::GraphicalReportHandler::new()
+                    .with_theme(miette::GraphicalTheme::unicode_nocolor())
+                    .with_links(false)
+                    .with_urls(true),
+            )
         }))
         .unwrap();
     });
+}
+
+#[allow(clippy::unnecessary_wraps)] // we can't change the signature expected by datatest_stable
+fn run_test(path: &Path) -> datatest_stable::Result<()> {
+    init_miette();
 
     let expected_file_path = path.with_file_name("expected.out");
     let expected = fs::read_to_string(&expected_file_path).unwrap_or_default();
@@ -30,9 +39,9 @@ fn run_test(path: &Path) -> datatest_stable::Result<()> {
             errs,
         } = typed_resolvers::generate_type_extensions_from_resolvers(&path.with_file_name("resolvers"));
         if !errs.is_empty() {
-            actual.push_str("\n=== ERRORS ===\n");
+            actual.push_str("=== ERRORS ===\n");
             for err in errs {
-                writeln!(&mut actual, "{err:?}").unwrap();
+                writeln!(&mut actual, "\n{err:?}").unwrap();
             }
         }
         actual

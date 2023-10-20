@@ -1,8 +1,8 @@
 use crate::analyze::ListWrapper;
-use miette::{Diagnostic, SourceSpan};
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use std::{
     fmt::{self, Write as _},
-    fs, io,
+    fs,
     path::Path,
     rc::Rc,
 };
@@ -11,24 +11,9 @@ use swc_ecma_ast as ast;
 use swc_ecma_parser as parser;
 use thiserror::Error;
 
-const DOCS_PAGE: &str = "/dev/null";
-
-#[derive(Debug, Error, Diagnostic)]
-enum ResolverAnalysisError {
-    #[error("IO error")]
-    Io(#[from] io::Error),
-    #[error("Error parsing TypeScript")]
-    ParseError(String),
-}
-
-#[derive(Debug, Error, miette::Diagnostic)]
-#[error("{message}")]
-struct WholeModuleError {
-    message: &'static str,
-}
-
 #[derive(Debug, Error, Diagnostic, Default)]
-#[error("Could not infer GraphQL field definition for the resolver.")]
+#[error("Could not infer GraphQL field definition for a resolver.")]
+#[diagnostic(url("https://grafbase.com/docs/edge-gateway/resolvers"))]
 struct AnalysisErrors {
     #[related]
     errors: Vec<miette::Error>,
@@ -54,7 +39,7 @@ fn handle_module(module: &ast::Module, out: &mut String) -> miette::Result<()> {
     let mut errors = AnalysisErrors::default();
     let resolver_fn = find_default_export_function(&module)?;
 
-    let (Some(resolver_name), Some(resolver_parent), resolver_args, Some(resolver_return_type)) = (
+    let (Some(resolver_name), Some(resolver_parent), Some(resolver_args), Some(resolver_return_type)) = (
         resolver_name(&resolver_fn, &mut errors),
         resolver_parent(&resolver_fn, &mut errors),
         resolver_args(&resolver_fn, &mut errors),
@@ -101,24 +86,24 @@ fn find_default_export_function(module: &ast::Module) -> miette::Result<&ast::Fn
         }
     }
 
-    Err(WholeModuleError {
-        message: "Missing default export.",
-    }
-    .into())
+    Err(miette::miette!("Missing default export"))
 }
 
-fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> InferredArgs<'a> {
+fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<InferredArgs<'a>> {
     #[derive(Debug, Diagnostic, Error)]
     #[error("Not the right shape for arguments.")]
     struct BadArguments(#[label] SourceSpan);
 
     #[derive(Debug, Diagnostic, Error)]
-    #[error("Not a type literal, needs to be a literal object (todo: example).")]
+    #[error("Not a type literal, needs to be a literal object.")]
+    #[diagnostic(help(
+        "Define the arguments type as object literal type: `args: {{ argOne: string, argTwo: string }}``"
+    ))]
     struct TypeIsNotTypeLit(#[label] SourceSpan);
 
     let mut args = InferredArgs { args: Vec::new() };
     let Some(second_arg) = func.function.params.get(1) else {
-        return args;
+        return Some(args); // no arguments is valid
     };
 
     // TODO: handle args with defaults
@@ -127,16 +112,16 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Infe
         ast::Pat::Object(obj_pat) => obj_pat.type_ann.as_deref(),
         _ => {
             errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
-            return args;
+            return None;
         }
     };
     let Some(type_ann) = type_ann else {
         errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
-        return args;
+        return None;
     };
     let Some(type_lit) = type_ann.type_ann.as_ts_type_lit() else {
         errors.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_ann.span)));
-        return args;
+        return None;
     };
 
     for field in &type_lit.members {
@@ -163,12 +148,13 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Infe
         }
     }
 
-    args
+    Some(args)
 }
 
 fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<&'a str> {
     #[derive(Debug, Error, Diagnostic)]
     #[error("The function must have a name.")]
+    #[diagnostic(help("Give a name to the function: `export default async function myField(...)`"))]
     struct ResolverFunctionMustHaveAName(#[label] SourceSpan);
 
     match func.ident.as_ref().map(|ident| ident.sym.as_ref()) {
@@ -184,21 +170,48 @@ fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
 
 fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<String> {
     let first_param = func.function.params.first().unwrap();
-    match &first_param.pat {
-        ast::Pat::Ident(ast::BindingIdent { id: _, type_ann }) => match type_ann {
-            Some(ann) => match ann.type_ann.as_ref() {
-                ast::TsType::TsTypeRef(typeref) => Some(typeref.type_name.as_ident().unwrap().sym.as_ref().to_owned()),
-                _ => todo!(),
-            },
-            None => todo!(),
-        },
-        _ => todo!(),
+    let type_ann = match &first_param.pat {
+        ast::Pat::Ident(ast::BindingIdent { id: _, type_ann }) => type_ann.as_ref(),
+        ast::Pat::Object(obj) => obj.type_ann.as_ref(),
+        _ => {
+            let first_param_span = swc_span_to_miette_span(first_param.span);
+            errors.push(miette::diagnostic!(
+                labels = vec![LabeledSpan::at(
+                    first_param_span,
+                    "Not a valid first argument for a resolver."
+                )],
+                "Could not infer what type the resolver is attached to."
+            ));
+            return None;
+        }
+    };
+
+    let Some(type_ann) = type_ann else {
+        let first_param_span = swc_span_to_miette_span(first_param.span);
+        errors.push(miette::diagnostic!(
+            labels = vec![LabeledSpan::at(first_param_span, "Missing type annotation.")],
+            "Could not infer what type the resolver is attached to."
+        ));
+        return None;
+    };
+
+    match type_ann.type_ann.as_ref() {
+        ast::TsType::TsTypeRef(typeref) => Some(typeref.type_name.as_ident().unwrap().sym.as_ref().to_owned()),
+        _ => {
+            let span = swc_span_to_miette_span(type_ann.span);
+            errors.push(miette::diagnostic!(
+                labels = vec![LabeledSpan::at(span, "")],
+                "Could not infer what type the resolver is attached to."
+            ));
+            None
+        }
     }
 }
 
 fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<InferredType<'a>> {
     #[derive(Debug, Error, Diagnostic)]
     #[error("The return type must be specified on resolver functions.")]
+    #[diagnostic(help("Add a return type: `function (...): string | null`"))]
     struct MissingReturnType(#[label] SourceSpan);
 
     match func.function.return_type.as_ref() {
@@ -211,17 +224,10 @@ fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) 
 }
 
 fn parse_file(path: &Path) -> miette::Result<(Rc<String>, ast::Module)> {
-    #[derive(Debug, Error, miette::Diagnostic)]
-    #[error("Error parsing the resolver module.\n{message}")]
-    struct ParseError {
-        #[label]
-        span: SourceSpan,
-        message: String,
-    }
-
     let mut recovered_errors = Vec::new(); // not used by us
     let source_file = path_to_swc_source_file(path)?;
     let src = source_file.src.clone();
+
     let module = parser::parse_file_as_module(
         &source_file,
         parser::Syntax::Typescript(parser::TsConfig::default()),
@@ -229,14 +235,12 @@ fn parse_file(path: &Path) -> miette::Result<(Rc<String>, ast::Module)> {
         None,
         &mut recovered_errors,
     )
-    .map_err(|parse_error| {
-        swc_common::errors::HANDLER.with(|handler| {
-            let diagnostic = parse_error.into_diagnostic(handler);
-            ParseError {
-                span: swc_span_to_miette_span(diagnostic.span.primary_span().unwrap_or_else(Span::default)),
-                message: diagnostic.message(),
-            }
-        })
+    .map_err(|_| {
+        miette::miette!(
+            severity = miette::Severity::Error,
+            "The resolver at {} is not valid TypeScript.",
+            path.display(),
+        )
     })?;
     Ok((src, module))
 }

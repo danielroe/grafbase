@@ -1,6 +1,18 @@
-
 === ERRORS ===
-  × Could not infer GraphQL field definition for the resolver.
+
+  × Could not infer GraphQL field definition for a resolver.
+
+Error:   × Not a type literal, needs to be a literal object.
+   ╭─[./tests/resolver_discovery/errors/resolvers/argsShape.ts:3:1]
+ 3 │ 
+ 4 │ export default async function friends(_user: User, _args: FriendsArgs, _context: Context): Promise<User[]> {
+   ·                                                          ─────────────
+ 5 │     return []
+   ╰────
+  help: Define the arguments type as object literal type: `args: { argOne: string, argTwo: string }``
+
+
+  × Could not infer GraphQL field definition for a resolver.
 
 Error:   × The return type must be specified on resolver functions.
    ╭─[./tests/resolver_discovery/errors/resolvers/missingReturnType.ts:3:1]
@@ -10,4 +22,21 @@ Error:   × The return type must be specified on resolver functions.
  6 │ ╰─▶ }
  7 │     
    ╰────
+  help: Add a return type: `function (...): string | null`
+
+
+  × Could not infer GraphQL field definition for a resolver.
+
+Error:   × The function must have a name.
+   ╭─[./tests/resolver_discovery/errors/resolvers/noName.ts:3:1]
+ 3 │     
+ 4 │ ╭─▶ export default async function(parent: User): Promise<string> {
+ 5 │ │       return "???"
+ 6 │ ╰─▶ }
+ 7 │     
+   ╰────
+  help: Give a name to the function: `export default async function myField(...)`
+
+
+  × The resolver at ./tests/resolver_discovery/errors/resolvers/invalidTs.ts is not valid TypeScript.
 
