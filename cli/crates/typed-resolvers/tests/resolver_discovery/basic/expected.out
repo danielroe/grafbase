@@ -1,3 +1,4 @@
-extend type User { fullName: string }
+extend type User { fullName: String }
+extend type User { comparisons(otherUser: ID!): [[boolean!]!]! }
 extend type User { friends(first: number!): [User!]! }
 extend type User { stronger(otherUser: ID!): boolean! }

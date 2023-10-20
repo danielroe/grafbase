@@ -135,7 +135,7 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
                     }
                 };
                 let Some(arg_type) = &property.type_ann else { continue };
-                let Some(arg_type) = infer_return_type(arg_type.type_ann.as_ref()) else {
+                let Some(arg_type) = infer_graphql_type(arg_type.type_ann.as_ref()) else {
                     continue;
                 };
 
@@ -219,7 +219,7 @@ fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) 
             errors.push(MissingReturnType(swc_span_to_miette_span(func.function.span)));
             None
         }
-        Some(return_type) => infer_return_type(return_type.type_ann.as_ref()),
+        Some(return_type) => infer_graphql_type(return_type.type_ann.as_ref()),
     }
 }
 
@@ -284,7 +284,7 @@ fn ts_union_to_graphql_type_name(
         _ => return None,
     };
 
-    infer_return_type_rec(&ty.types[ty_idx], true, list_wrappers)
+    infer_graphql_type_rec(&ty.types[ty_idx], true, list_wrappers)
 }
 
 fn ts_type_as_str(ty: &ast::TsType) -> Option<&str> {
@@ -322,12 +322,12 @@ fn infer_ts_type_ref(
     match type_name? {
         "Promise" => {
             let param = type_ref.type_params.as_ref()?.params.first()?;
-            infer_return_type_rec(param, is_nullable, list_wrappers)
+            infer_graphql_type_rec(param, is_nullable, list_wrappers)
         }
         "Array" => {
             list_wrappers.push(ListWrapper::NonNullList);
             let param = type_ref.type_params.as_ref()?.params.first()?;
-            infer_return_type_rec(param, false, list_wrappers)
+            infer_graphql_type_rec(param, false, list_wrappers)
         }
         name => Some(InferredType {
             is_nullable,
@@ -337,11 +337,11 @@ fn infer_ts_type_ref(
     }
 }
 
-fn infer_return_type(ts_type: &ast::TsType) -> Option<InferredType<'_>> {
-    infer_return_type_rec(ts_type, false, Vec::new())
+fn infer_graphql_type(ts_type: &ast::TsType) -> Option<InferredType<'_>> {
+    infer_graphql_type_rec(ts_type, false, Vec::new())
 }
 
-fn infer_return_type_rec(
+fn infer_graphql_type_rec(
     ts_type: &ast::TsType,
     is_nullable: bool,
     mut list_wrappers: Vec<ListWrapper>,
@@ -355,7 +355,7 @@ fn infer_return_type_rec(
                 ast::TsKeywordTypeKind::TsObjectKeyword => "object",
                 ast::TsKeywordTypeKind::TsBooleanKeyword => "boolean",
                 ast::TsKeywordTypeKind::TsBigIntKeyword => "BigInt",
-                ast::TsKeywordTypeKind::TsStringKeyword => "string",
+                ast::TsKeywordTypeKind::TsStringKeyword => "String",
                 ast::TsKeywordTypeKind::TsSymbolKeyword => todo!(),
                 ast::TsKeywordTypeKind::TsVoidKeyword => "void",
                 ast::TsKeywordTypeKind::TsUndefinedKeyword => "undefined",
@@ -372,10 +372,12 @@ fn infer_return_type_rec(
         ast::TsType::TsTypeRef(type_ref) => infer_ts_type_ref(type_ref, is_nullable, list_wrappers),
         ast::TsType::TsArrayType(ty) => {
             list_wrappers.push(ListWrapper::NonNullList);
-            infer_return_type_rec(ty.elem_type.as_ref(), false, list_wrappers)
+            infer_graphql_type_rec(ty.elem_type.as_ref(), false, list_wrappers)
         }
         ast::TsType::TsUnionOrIntersectionType(ty) => ts_union_to_graphql_type_name(ty, is_nullable, list_wrappers),
-        ast::TsType::TsParenthesizedType(ty) => infer_return_type_rec(ty.type_ann.as_ref(), is_nullable, list_wrappers),
+        ast::TsType::TsParenthesizedType(ty) => {
+            infer_graphql_type_rec(ty.type_ann.as_ref(), is_nullable, list_wrappers)
+        }
         other => todo!("{:?}", other),
     }
 }
