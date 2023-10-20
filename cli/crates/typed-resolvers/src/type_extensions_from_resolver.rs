@@ -1,4 +1,4 @@
-use crate::analyze::ListWrapper;
+use crate::analyze::{AnalyzedSchema, ListWrapper};
 use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use std::{
     fmt::{self, Write as _},
@@ -25,9 +25,26 @@ impl AnalysisErrors {
     }
 }
 
-pub(crate) fn object_extension_for_resolver(path: &Path, out: &mut String) -> miette::Result<()> {
+struct AnalysisContext<'a> {
+    graphql_schema: &'a AnalyzedSchema<'a>,
+    errors: AnalysisErrors,
+}
+
+impl AnalysisContext<'_> {
+    fn push<T: Diagnostic + Send + Sync + 'static>(&mut self, err: T) {
+        self.errors.push(err)
+    }
+}
+
+type Ctx<'a> = AnalysisContext<'a>;
+
+pub(crate) fn object_extension_for_resolver(
+    path: &Path,
+    out: &mut String,
+    graphql_schema: &AnalyzedSchema<'_>,
+) -> miette::Result<()> {
     let (src, module) = parse_file(path)?;
-    handle_module(&module, out).map_err(|err| {
+    handle_module(&module, out, graphql_schema).map_err(|err| {
         err.with_source_code(miette::NamedSource::new(
             path.display().to_string(),
             src.as_str().to_owned(),
@@ -35,17 +52,21 @@ pub(crate) fn object_extension_for_resolver(path: &Path, out: &mut String) -> mi
     })
 }
 
-fn handle_module(module: &ast::Module, out: &mut String) -> miette::Result<()> {
-    let mut errors = AnalysisErrors::default();
+fn handle_module(module: &ast::Module, out: &mut String, graphql_schema: &AnalyzedSchema<'_>) -> miette::Result<()> {
     let resolver_fn = find_default_export_function(&module)?;
 
+    let mut ctx = AnalysisContext {
+        graphql_schema,
+        errors: AnalysisErrors::default(),
+    };
+
     let (Some(resolver_name), Some(resolver_parent), Some(resolver_args), Some(resolver_return_type)) = (
-        resolver_name(&resolver_fn, &mut errors),
-        resolver_parent(&resolver_fn, &mut errors),
-        resolver_args(&resolver_fn, &mut errors),
-        resolver_return_type(&resolver_fn, &mut errors),
+        resolver_name(&resolver_fn, &mut ctx),
+        resolver_parent(&resolver_fn, &mut ctx),
+        resolver_args(&resolver_fn, &mut ctx),
+        resolver_return_type(&resolver_fn, &mut ctx),
     ) else {
-        return Err(errors.into());
+        return Err(ctx.errors.into());
     };
 
     writeln!(
@@ -89,7 +110,7 @@ fn find_default_export_function(module: &ast::Module) -> miette::Result<&ast::Fn
     Err(miette::miette!("Missing default export"))
 }
 
-fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<InferredArgs<'a>> {
+fn resolver_args<'a>(func: &'a ast::FnExpr, ctx: &mut Ctx<'_>) -> Option<InferredArgs<'a>> {
     #[derive(Debug, Diagnostic, Error)]
     #[error("Not the right shape for arguments.")]
     struct BadArguments(#[label] SourceSpan);
@@ -111,16 +132,16 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
         ast::Pat::Ident(binding_ident) => binding_ident.type_ann.as_deref(),
         ast::Pat::Object(obj_pat) => obj_pat.type_ann.as_deref(),
         _ => {
-            errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
+            ctx.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
             return None;
         }
     };
     let Some(type_ann) = type_ann else {
-        errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
+        ctx.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
         return None;
     };
     let Some(type_lit) = type_ann.type_ann.as_ts_type_lit() else {
-        errors.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_ann.span)));
+        ctx.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_ann.span)));
         return None;
     };
 
@@ -142,7 +163,7 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
                 args.args.push((arg_name, arg_type));
             }
             _ => {
-                errors.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_lit.span)));
+                ctx.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_lit.span)));
                 continue;
             }
         }
@@ -151,7 +172,7 @@ fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
     Some(args)
 }
 
-fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<&'a str> {
+fn resolver_name<'a>(func: &'a ast::FnExpr, ctx: &mut Ctx<'_>) -> Option<&'a str> {
     #[derive(Debug, Error, Diagnostic)]
     #[error("The function must have a name.")]
     #[diagnostic(help("Give a name to the function: `export default async function myField(...)`"))]
@@ -160,7 +181,7 @@ fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
     match func.ident.as_ref().map(|ident| ident.sym.as_ref()) {
         Some(name) => Some(name),
         None => {
-            errors.push(ResolverFunctionMustHaveAName(swc_span_to_miette_span(
+            ctx.push(ResolverFunctionMustHaveAName(swc_span_to_miette_span(
                 func.function.span,
             )));
             None
@@ -168,14 +189,14 @@ fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Opti
     }
 }
 
-fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<String> {
+fn resolver_parent(func: &ast::FnExpr, ctx: &mut Ctx<'_>) -> Option<String> {
     let first_param = func.function.params.first().unwrap();
     let type_ann = match &first_param.pat {
         ast::Pat::Ident(ast::BindingIdent { id: _, type_ann }) => type_ann.as_ref(),
         ast::Pat::Object(obj) => obj.type_ann.as_ref(),
         _ => {
             let first_param_span = swc_span_to_miette_span(first_param.span);
-            errors.push(miette::diagnostic!(
+            ctx.push(miette::diagnostic!(
                 labels = vec![LabeledSpan::at(
                     first_param_span,
                     "Not a valid first argument for a resolver."
@@ -188,7 +209,7 @@ fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<St
 
     let Some(type_ann) = type_ann else {
         let first_param_span = swc_span_to_miette_span(first_param.span);
-        errors.push(miette::diagnostic!(
+        ctx.push(miette::diagnostic!(
             labels = vec![LabeledSpan::at(first_param_span, "Missing type annotation.")],
             "Could not infer what type the resolver is attached to."
         ));
@@ -199,7 +220,7 @@ fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<St
         ast::TsType::TsTypeRef(typeref) => Some(typeref.type_name.as_ident().unwrap().sym.as_ref().to_owned()),
         _ => {
             let span = swc_span_to_miette_span(type_ann.span);
-            errors.push(miette::diagnostic!(
+            ctx.push(miette::diagnostic!(
                 labels = vec![LabeledSpan::at(span, "")],
                 "Could not infer what type the resolver is attached to."
             ));
@@ -208,7 +229,7 @@ fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<St
     }
 }
 
-fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<InferredType<'a>> {
+fn resolver_return_type<'a>(func: &'a ast::FnExpr, ctx: &mut Ctx<'_>) -> Option<InferredType<'a>> {
     #[derive(Debug, Error, Diagnostic)]
     #[error("The return type must be specified on resolver functions.")]
     #[diagnostic(help("Add a return type: `function (...): string | null`"))]
@@ -216,7 +237,7 @@ fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) 
 
     match func.function.return_type.as_ref() {
         None => {
-            errors.push(MissingReturnType(swc_span_to_miette_span(func.function.span)));
+            ctx.push(MissingReturnType(swc_span_to_miette_span(func.function.span)));
             None
         }
         Some(return_type) => infer_graphql_type(return_type.type_ann.as_ref()),
@@ -297,12 +318,12 @@ fn ts_type_as_str(ty: &ast::TsType) -> Option<&str> {
             ast::TsKeywordTypeKind::TsBooleanKeyword => "boolean",
             ast::TsKeywordTypeKind::TsBigIntKeyword => "BigInt",
             ast::TsKeywordTypeKind::TsStringKeyword => "string",
-            ast::TsKeywordTypeKind::TsSymbolKeyword => todo!(),
+            ast::TsKeywordTypeKind::TsSymbolKeyword => "symbol",
             ast::TsKeywordTypeKind::TsVoidKeyword => "void",
             ast::TsKeywordTypeKind::TsUndefinedKeyword => "undefined",
             ast::TsKeywordTypeKind::TsNullKeyword => "null",
-            ast::TsKeywordTypeKind::TsNeverKeyword => todo!(),
-            ast::TsKeywordTypeKind::TsIntrinsicKeyword => todo!(),
+            ast::TsKeywordTypeKind::TsNeverKeyword => "never",
+            ast::TsKeywordTypeKind::TsIntrinsicKeyword => "intrinsic",
         }),
         ast::TsType::TsTypeRef(ty) => match &ty.type_name {
             ast::TsEntityName::Ident(name) => Some(name.sym.as_ref()),

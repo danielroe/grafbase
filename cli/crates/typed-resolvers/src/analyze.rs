@@ -1,7 +1,7 @@
 use graphql_parser::schema as ast;
 use std::{collections::HashMap, ops, str::FromStr};
 
-pub(crate) fn analyze<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str>) -> AnalyzedSchema<'doc> {
+pub(crate) fn analyze<'doc>(graphql_document: &ast::Document<'doc, &'doc str>) -> AnalyzedSchema<'doc> {
     let mut schema = AnalyzedSchema::default();
 
     analyze_top_level(graphql_document, &mut schema);
@@ -11,35 +11,35 @@ pub(crate) fn analyze<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc st
 }
 
 /// First pass. Resolve what definitions exist in the schema (objects, unions, etc.).
-fn analyze_top_level<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str>, schema: &mut AnalyzedSchema<'doc>) {
+fn analyze_top_level<'doc>(graphql_document: &ast::Document<'doc, &'doc str>, schema: &mut AnalyzedSchema<'doc>) {
     for definition in &graphql_document.definitions {
         match definition {
             ast::Definition::DirectiveDefinition(_) | ast::Definition::SchemaDefinition(_) => (), // not interested
             ast::Definition::TypeDefinition(ast::TypeDefinition::Object(output_type)) => {
                 schema.push_output_type(Object {
                     name: output_type.name,
-                    docs: output_type.description.as_deref(),
+                    docs: output_type.description.clone(),
                     kind: ObjectKind::Object,
                 });
             }
             ast::Definition::TypeDefinition(ast::TypeDefinition::InputObject(object_definition)) => {
                 schema.push_output_type(Object {
                     name: object_definition.name,
-                    docs: object_definition.description.as_deref(),
+                    docs: object_definition.description.clone(),
                     kind: ObjectKind::InputObject,
                 });
             }
             ast::Definition::TypeDefinition(ast::TypeDefinition::Interface(object_definition)) => {
                 schema.push_output_type(Object {
                     name: object_definition.name,
-                    docs: object_definition.description.as_deref(),
+                    docs: object_definition.description.clone(),
                     kind: ObjectKind::Interface,
                 });
             }
             ast::Definition::TypeDefinition(ast::TypeDefinition::Scalar(scalar)) => {
                 schema.push_custom_scalar(CustomScalar {
                     name: scalar.name,
-                    docs: scalar.description.as_deref(),
+                    docs: scalar.description.clone(),
                 });
             }
             ast::Definition::TypeDefinition(ast::TypeDefinition::Union(union_definition)) => {
@@ -50,7 +50,7 @@ fn analyze_top_level<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str
             ast::Definition::TypeDefinition(ast::TypeDefinition::Enum(enum_definition)) => {
                 let id = schema.push_enum(Enum {
                     name: enum_definition.name,
-                    docs: enum_definition.description.as_deref(),
+                    docs: enum_definition.description.clone(),
                 });
 
                 for variant in &enum_definition.values {
@@ -67,7 +67,7 @@ fn analyze_top_level<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str
 
 /// Second pass. We know about all definitions, now we analyze fields inside object and interface
 /// types, and variants inside unions.
-fn analyze_fields<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str>, schema: &mut AnalyzedSchema<'doc>) {
+fn analyze_fields<'doc>(graphql_document: &ast::Document<'doc, &'doc str>, schema: &mut AnalyzedSchema<'doc>) {
     for definition in &graphql_document.definitions {
         match definition {
             ast::Definition::DirectiveDefinition(_) | ast::Definition::SchemaDefinition(_) => (), // not interested
@@ -149,13 +149,13 @@ fn analyze_fields<'doc>(graphql_document: &'doc ast::Document<'doc, &'doc str>, 
 }
 
 fn analyze_ast_input_field<'doc>(
-    field: &'doc ast::InputValue<'doc, &'doc str>,
+    field: &ast::InputValue<'doc, &'doc str>,
     schema: &AnalyzedSchema<'doc>,
 ) -> Option<Field<'doc>> {
     let (name, inner_is_nullable, list_wrappers) = type_from_nested(&field.value_type);
     Some(Field {
         name: field.name,
-        docs: field.description.as_deref(),
+        docs: field.description.clone(),
         kind: BuiltinScalar::from_str(name)
             .ok()
             .map(FieldTypeKind::BuiltinScalar)
@@ -165,14 +165,11 @@ fn analyze_ast_input_field<'doc>(
     })
 }
 
-fn analyze_ast_field<'doc>(
-    field: &'doc ast::Field<'doc, &'doc str>,
-    schema: &AnalyzedSchema<'doc>,
-) -> Option<Field<'doc>> {
+fn analyze_ast_field<'doc>(field: &ast::Field<'doc, &'doc str>, schema: &AnalyzedSchema<'doc>) -> Option<Field<'doc>> {
     let (name, inner_is_nullable, list_wrappers) = type_from_nested(&field.field_type);
     Some(Field {
         name: field.name,
-        docs: field.description.as_deref(),
+        docs: field.description.clone(),
         kind: BuiltinScalar::from_str(name)
             .ok()
             .map(FieldTypeKind::BuiltinScalar)
@@ -205,7 +202,7 @@ fn type_from_nested<'a>(ty: &ast::Type<'a, &'a str>) -> (&'a str, bool, Vec<List
 }
 
 #[derive(Default, Debug)]
-pub(crate) struct AnalyzedSchema<'doc> {
+pub struct AnalyzedSchema<'doc> {
     pub(crate) definitions: Vec<Definition>,
 
     // Index mapping names to definitions.
@@ -231,7 +228,7 @@ pub(crate) struct AnalyzedSchema<'doc> {
 pub(crate) struct Field<'doc> {
     pub(crate) name: &'doc str,
     pub(crate) kind: FieldTypeKind,
-    pub(crate) docs: Option<&'doc str>,
+    pub(crate) docs: Option<String>,
 
     inner_is_nullable: bool,
     // TODO: a more compact and/or normalized representation
@@ -272,7 +269,7 @@ pub(crate) enum FieldTypeKind {
 #[derive(Debug)]
 pub(crate) struct CustomScalar<'doc> {
     pub(crate) name: &'doc str,
-    pub(crate) docs: Option<&'doc str>,
+    pub(crate) docs: Option<String>,
 }
 
 #[derive(Debug)]
@@ -409,7 +406,7 @@ pub(crate) enum Definition {
 #[derive(Debug)]
 pub(crate) struct Object<'doc> {
     pub(crate) name: &'doc str,
-    pub(crate) docs: Option<&'doc str>,
+    pub(crate) docs: Option<String>,
     pub(crate) kind: ObjectKind,
 }
 
@@ -428,7 +425,7 @@ pub(crate) struct Union<'doc> {
 #[derive(Debug)]
 pub(crate) struct Enum<'doc> {
     pub(crate) name: &'doc str,
-    pub(crate) docs: Option<&'doc str>,
+    pub(crate) docs: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]

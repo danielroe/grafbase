@@ -15,7 +15,7 @@ where
                 let ts_type_name = safe_ts_type_name(graphql_type_name);
                 let is_input_object = matches!(object_type.kind, ObjectKind::InputObject);
 
-                maybe_docs(out, object_type.docs, "")?;
+                maybe_docs(out, object_type.docs.as_deref(), "")?;
                 writeln!(out, "export type {ts_type_name} = {{")?;
 
                 if let ObjectKind::Object = object_type.kind {
@@ -33,7 +33,7 @@ where
                     let field_name = field.name;
                     let field_type = render_field_type(field, schema);
 
-                    maybe_docs(out, field.docs, INDENT)?;
+                    maybe_docs(out, field.docs.as_deref(), INDENT)?;
                     writeln!(out, "{INDENT}{field_name}{field_optional}: {field_type};")?;
                 }
 
@@ -56,7 +56,7 @@ where
             Definition::Enum(enum_id) => {
                 let r#enum = &schema[*enum_id];
                 let enum_name = safe_ts_type_name(r#enum.name);
-                maybe_docs(out, r#enum.docs, "")?;
+                maybe_docs(out, r#enum.docs.as_deref(), "")?;
                 writeln!(out, "export enum {enum_name} {{")?;
                 for variant in schema.iter_enum_variants(*enum_id) {
                     out.write_str(INDENT)?;
@@ -68,7 +68,7 @@ where
             Definition::CustomScalar(id) => {
                 let scalar = &schema[*id];
                 let scalar_name = safe_ts_type_name(scalar.name);
-                maybe_docs(out, scalar.docs, "")?;
+                maybe_docs(out, scalar.docs.as_deref(), "")?;
                 writeln!(out, "export type {scalar_name} = any;")?;
             }
         }

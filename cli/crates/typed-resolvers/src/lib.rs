@@ -5,8 +5,15 @@ mod codegen;
 mod error;
 mod type_extensions_from_resolver;
 
+pub use self::analyze::AnalyzedSchema;
+
 use self::error::CodegenError;
 use std::{ffi, fmt, path::Path};
+
+pub fn analyze_schema(graphql_sdl: &str) -> Result<AnalyzedSchema<'_>, graphql_parser::schema::ParseError> {
+    let parsed_schema = graphql_parser::parse_schema::<&str>(graphql_sdl)?;
+    Ok(analyze::analyze(&parsed_schema))
+}
 
 /// Generate a TypeScript module that contains input and output type definitions for resolver
 /// authoring purposes, based on the passed in SDL schema.
@@ -26,7 +33,10 @@ pub struct AnalyzedResolvers {
 }
 
 /// Returns either a GraphQL SDL string that defines the resolvers as type extensions, or errors.
-pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> AnalyzedResolvers {
+pub fn generate_type_extensions_from_resolvers(
+    resolvers_root: &Path,
+    schema: &analyze::AnalyzedSchema<'_>,
+) -> AnalyzedResolvers {
     let mut out = String::new();
     let mut errs = Vec::new();
 
@@ -38,7 +48,7 @@ pub fn generate_type_extensions_from_resolvers(resolvers_root: &Path) -> Analyze
             continue;
         }
 
-        if let Err(err) = type_extensions_from_resolver::object_extension_for_resolver(entry.path(), &mut out) {
+        if let Err(err) = type_extensions_from_resolver::object_extension_for_resolver(entry.path(), &mut out, schema) {
             errs.push(err);
         }
     }

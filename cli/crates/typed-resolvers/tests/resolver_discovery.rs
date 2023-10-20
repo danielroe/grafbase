@@ -28,16 +28,21 @@ fn init_miette() {
 }
 
 #[allow(clippy::unnecessary_wraps)] // we can't change the signature expected by datatest_stable
-fn run_test(path: &Path) -> datatest_stable::Result<()> {
+fn run_test(graphql_file_path: &Path) -> datatest_stable::Result<()> {
     init_miette();
 
-    let expected_file_path = path.with_file_name("expected.out");
+    let expected_file_path = graphql_file_path.with_file_name("expected.out");
     let expected = fs::read_to_string(&expected_file_path).unwrap_or_default();
     let actual = {
+        let graphql_sdl = fs::read_to_string(&graphql_file_path).unwrap();
+        let analyzed_schema = typed_resolvers::analyze_schema(&graphql_sdl).unwrap();
         let typed_resolvers::AnalyzedResolvers {
             type_extensions: mut actual,
             errs,
-        } = typed_resolvers::generate_type_extensions_from_resolvers(&path.with_file_name("resolvers"));
+        } = typed_resolvers::generate_type_extensions_from_resolvers(
+            &graphql_file_path.with_file_name("resolvers"),
+            &analyzed_schema,
+        );
         if !errs.is_empty() {
             actual.push_str("=== ERRORS ===\n");
             for err in errs {
