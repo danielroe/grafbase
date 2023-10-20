@@ -1,66 +1,141 @@
 use crate::analyze::ListWrapper;
+use miette::{Diagnostic, SourceSpan};
 use std::{
     fmt::{self, Write as _},
     fs, io,
     path::Path,
+    rc::Rc,
 };
-use swc_common::{source_map::Pos, SourceFile};
+use swc_common::{source_map::Pos, SourceFile, Span};
 use swc_ecma_ast as ast;
 use swc_ecma_parser as parser;
+use thiserror::Error;
 
 const DOCS_PAGE: &str = "/dev/null";
 
-pub(crate) fn object_extension_for_resolver(path: &Path, out: &mut String, errs: &mut String) {
-    let module = match parse_file(path) {
-        Ok(module) => module,
-        Err(err) => {
-            writeln!(errs, "{}", err).ok();
-            return;
-        }
-    };
-    let Some(resolver_fn) = module.body.iter().find_map(|item| match item {
-        ast::ModuleItem::ModuleDecl(ast::ModuleDecl::ExportDefaultDecl(decl)) => {
-            match &decl.decl {
-                ast::DefaultDecl::Fn(func) => Some(func),
-                _ => todo!(), // todo expected export default fn
-            }
-        }
-        _ => None, // todo handle
-    }) else {
-        writeln!(errs, "Missing default export").unwrap();
-        return;
-    };
+#[derive(Debug, Error, Diagnostic)]
+enum ResolverAnalysisError {
+    #[error("IO error")]
+    Io(#[from] io::Error),
+    #[error("Error parsing TypeScript")]
+    ParseError(String),
+}
 
-    let Some(resolver_name) = resolver_name(&resolver_fn) else {
-        writeln!(errs, "Could not determine resolver name").unwrap();
-        return;
-    };
-    let resolver_parent = resolver_parent(&resolver_fn);
-    let args = resolver_args(&resolver_fn);
-    let Some(resolver_return_type) = resolver_return_type(&resolver_fn) else {
-        panic!("no return type")
+#[derive(Debug, Error, miette::Diagnostic)]
+#[error("{message}")]
+struct WholeModuleError {
+    message: &'static str,
+}
+
+#[derive(Debug, Error, Diagnostic, Default)]
+#[error("Could not infer GraphQL field definition for the resolver.")]
+struct AnalysisErrors {
+    #[related]
+    errors: Vec<miette::Error>,
+}
+
+impl AnalysisErrors {
+    fn push<T: Diagnostic + Send + Sync + 'static>(&mut self, err: T) {
+        self.errors.push(err.into())
+    }
+}
+
+pub(crate) fn object_extension_for_resolver(path: &Path, out: &mut String) -> miette::Result<()> {
+    let (src, module) = parse_file(path)?;
+    handle_module(&module, out).map_err(|err| {
+        err.with_source_code(miette::NamedSource::new(
+            path.display().to_string(),
+            src.as_str().to_owned(),
+        ))
+    })
+}
+
+fn handle_module(module: &ast::Module, out: &mut String) -> miette::Result<()> {
+    let mut errors = AnalysisErrors::default();
+    let resolver_fn = find_default_export_function(&module)?;
+
+    let (Some(resolver_name), Some(resolver_parent), resolver_args, Some(resolver_return_type)) = (
+        resolver_name(&resolver_fn, &mut errors),
+        resolver_parent(&resolver_fn, &mut errors),
+        resolver_args(&resolver_fn, &mut errors),
+        resolver_return_type(&resolver_fn, &mut errors),
+    ) else {
+        return Err(errors.into());
     };
 
     writeln!(
         out,
-        "extend type {resolver_parent} {{ {resolver_name}{args}: {resolver_return_type} }}"
+        "extend type {resolver_parent} {{ {resolver_name}{resolver_args}: {resolver_return_type} }}"
     )
     .unwrap();
+    Ok(())
 }
 
-fn resolver_args(func: &ast::FnExpr) -> InferredArgs<'_> {
+fn swc_span_to_miette_span(span: Span) -> SourceSpan {
+    SourceSpan::new(
+        miette::SourceOffset::from(span.lo.0 as usize),
+        miette::SourceOffset::from((span.hi.0 - span.lo.0) as usize),
+    )
+}
+
+fn find_default_export_function(module: &ast::Module) -> miette::Result<&ast::FnExpr> {
+    #[derive(Debug, Error, miette::Diagnostic)]
+    #[error("The default export must be a function")]
+    struct WrongDefaultExport {
+        #[label]
+        span: SourceSpan,
+    }
+
+    for item in &module.body {
+        match item {
+            ast::ModuleItem::ModuleDecl(ast::ModuleDecl::ExportDefaultDecl(decl)) => match &decl.decl {
+                ast::DefaultDecl::Fn(func) => return Ok(func),
+                _ => {
+                    return Err(WrongDefaultExport {
+                        span: swc_span_to_miette_span(decl.span),
+                    }
+                    .into())
+                }
+            },
+            _ => (),
+        }
+    }
+
+    Err(WholeModuleError {
+        message: "Missing default export.",
+    }
+    .into())
+}
+
+fn resolver_args<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> InferredArgs<'a> {
+    #[derive(Debug, Diagnostic, Error)]
+    #[error("Not the right shape for arguments.")]
+    struct BadArguments(#[label] SourceSpan);
+
+    #[derive(Debug, Diagnostic, Error)]
+    #[error("Not a type literal, needs to be a literal object (todo: example).")]
+    struct TypeIsNotTypeLit(#[label] SourceSpan);
+
     let mut args = InferredArgs { args: Vec::new() };
     let Some(second_arg) = func.function.params.get(1) else {
         return args;
     };
+
     // TODO: handle args with defaults
     let type_ann = match &second_arg.pat {
         ast::Pat::Ident(binding_ident) => binding_ident.type_ann.as_deref(),
         ast::Pat::Object(obj_pat) => obj_pat.type_ann.as_deref(),
-        _ => return args,
+        _ => {
+            errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
+            return args;
+        }
     };
-    let Some(type_ann) = type_ann else { return args };
+    let Some(type_ann) = type_ann else {
+        errors.push(BadArguments(swc_span_to_miette_span(second_arg.span)));
+        return args;
+    };
     let Some(type_lit) = type_ann.type_ann.as_ts_type_lit() else {
+        errors.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_ann.span)));
         return args;
     };
 
@@ -82,56 +157,38 @@ fn resolver_args(func: &ast::FnExpr) -> InferredArgs<'_> {
                 args.args.push((arg_name, arg_type));
             }
             _ => {
-                // TODO: error
+                errors.push(TypeIsNotTypeLit(swc_span_to_miette_span(type_lit.span)));
                 continue;
             }
         }
     }
 
-    // let type_annotation = second_arg.decorators.iter().find_map(|decorator| {
-    //     match decorator.try_into {
-
-    //         ast::Decorator
-    //     }
-    // });
-    // let ast::Pat::Object(pat) = second_arg.decorators else {};
-
-    // for arg in &func.function.params {
-    //     args.push();
-    // }
-
     args
 }
 
-fn resolver_name(func: &ast::FnExpr) -> Option<&str> {
-    func.ident.as_ref().map(|ident| ident.sym.as_ref())
+fn resolver_name<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<&'a str> {
+    #[derive(Debug, Error, Diagnostic)]
+    #[error("The function must have a name.")]
+    struct ResolverFunctionMustHaveAName(#[label] SourceSpan);
+
+    match func.ident.as_ref().map(|ident| ident.sym.as_ref()) {
+        Some(name) => Some(name),
+        None => {
+            errors.push(ResolverFunctionMustHaveAName(swc_span_to_miette_span(
+                func.function.span,
+            )));
+            None
+        }
+    }
 }
 
-fn resolver_parent(func: &ast::FnExpr) -> String {
+fn resolver_parent(func: &ast::FnExpr, errors: &mut AnalysisErrors) -> Option<String> {
     let first_param = func.function.params.first().unwrap();
     match &first_param.pat {
         ast::Pat::Ident(ast::BindingIdent { id: _, type_ann }) => match type_ann {
             Some(ann) => match ann.type_ann.as_ref() {
-                ast::TsType::TsKeywordType(_) => todo!(),
-                ast::TsType::TsThisType(_) => todo!(),
-                ast::TsType::TsFnOrConstructorType(_) => todo!(),
-                ast::TsType::TsTypeRef(typeref) => typeref.type_name.as_ident().unwrap().sym.as_ref().to_owned(),
-                ast::TsType::TsTypeQuery(_) => todo!(),
-                ast::TsType::TsTypeLit(_) => todo!(),
-                ast::TsType::TsArrayType(_) => todo!(),
-                ast::TsType::TsTupleType(_) => todo!(),
-                ast::TsType::TsOptionalType(_) => todo!(),
-                ast::TsType::TsRestType(_) => todo!(),
-                ast::TsType::TsUnionOrIntersectionType(_) => todo!(),
-                ast::TsType::TsConditionalType(_) => todo!(),
-                ast::TsType::TsInferType(_) => todo!(),
-                ast::TsType::TsParenthesizedType(_) => todo!(),
-                ast::TsType::TsTypeOperator(_) => todo!(),
-                ast::TsType::TsIndexedAccessType(_) => todo!(),
-                ast::TsType::TsMappedType(_) => todo!(),
-                ast::TsType::TsLitType(_) => todo!(),
-                ast::TsType::TsTypePredicate(_) => todo!(),
-                ast::TsType::TsImportType(_) => todo!(),
+                ast::TsType::TsTypeRef(typeref) => Some(typeref.type_name.as_ident().unwrap().sym.as_ref().to_owned()),
+                _ => todo!(),
             },
             None => todo!(),
         },
@@ -139,13 +196,32 @@ fn resolver_parent(func: &ast::FnExpr) -> String {
     }
 }
 
-fn resolver_return_type(func: &ast::FnExpr) -> Option<InferredType<'_>> {
-    infer_return_type(func.function.return_type.as_ref()?.type_ann.as_ref())
+fn resolver_return_type<'a>(func: &'a ast::FnExpr, errors: &mut AnalysisErrors) -> Option<InferredType<'a>> {
+    #[derive(Debug, Error, Diagnostic)]
+    #[error("The return type must be specified on resolver functions.")]
+    struct MissingReturnType(#[label] SourceSpan);
+
+    match func.function.return_type.as_ref() {
+        None => {
+            errors.push(MissingReturnType(swc_span_to_miette_span(func.function.span)));
+            None
+        }
+        Some(return_type) => infer_return_type(return_type.type_ann.as_ref()),
+    }
 }
 
-fn parse_file(path: &Path) -> io::Result<ast::Module> {
+fn parse_file(path: &Path) -> miette::Result<(Rc<String>, ast::Module)> {
+    #[derive(Debug, Error, miette::Diagnostic)]
+    #[error("Error parsing the resolver module.\n{message}")]
+    struct ParseError {
+        #[label]
+        span: SourceSpan,
+        message: String,
+    }
+
     let mut recovered_errors = Vec::new(); // not used by us
     let source_file = path_to_swc_source_file(path)?;
+    let src = source_file.src.clone();
     let module = parser::parse_file_as_module(
         &source_file,
         parser::Syntax::Typescript(parser::TsConfig::default()),
@@ -153,12 +229,26 @@ fn parse_file(path: &Path) -> io::Result<ast::Module> {
         None,
         &mut recovered_errors,
     )
-    .unwrap();
-    Ok(module)
+    .map_err(|parse_error| {
+        swc_common::errors::HANDLER.with(|handler| {
+            let diagnostic = parse_error.into_diagnostic(handler);
+            ParseError {
+                span: swc_span_to_miette_span(diagnostic.span.primary_span().unwrap_or_else(Span::default)),
+                message: diagnostic.message(),
+            }
+        })
+    })?;
+    Ok((src, module))
 }
 
-fn path_to_swc_source_file(path: &Path) -> io::Result<SourceFile> {
-    let src = fs::read_to_string(path)?;
+#[derive(Debug, Error, miette::Diagnostic)]
+#[error("Could not read the file.")]
+struct CouldNotReadFile;
+
+fn path_to_swc_source_file(path: &Path) -> Result<SourceFile, CouldNotReadFile> {
+    let Ok(src) = fs::read_to_string(path) else {
+        return Err(CouldNotReadFile);
+    };
     let file_name = swc_common::FileName::Real(path.to_owned());
     Ok(SourceFile::new(
         file_name.clone(),
