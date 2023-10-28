@@ -12,15 +12,18 @@
   description = "Grafbase CLI development environment";
 
   inputs = {
-    dream2nix.url = "github:nix-community/dream2nix";
+    dream2nix = {
+      url = "github:nix-community/dream2nix";
+      flake = false;
+    };
+
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs =
-    { nixpkgs
+    inputs@{ nixpkgs
     , flake-utils
-    , dream2nix
     , ...
     }:
     let
@@ -32,6 +35,8 @@
       pkgs = import nixpkgs {
         inherit system;
       };
+
+      dream2nix = import inputs.dream2nix;
 
       aarch64DarwinExternalCargoCrates = concatStringsSep " " [ "cargo-instruments@0.4.8" ];
 

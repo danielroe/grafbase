@@ -7,10 +7,6 @@
   name = "grafbase";
   version = "0.41.2"; # TODO read the actual version.
 
-  deps = { nixpkgs, ... }: {
-    inherit (nixpkgs) hello;
-  };
-
   mkDerivation = {
     src = ../../.;
     preBuild = ''
