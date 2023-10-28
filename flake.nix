@@ -12,24 +12,28 @@
   description = "Grafbase CLI development environment";
 
   inputs = {
+    dream2nix.url = "github:nix-community/dream2nix";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = {
-    nixpkgs,
-    flake-utils,
-    ...
-  }: let
-    inherit (nixpkgs.lib) optional concatStringsSep;
-    systems = flake-utils.lib.system;
-  in
-    flake-utils.lib.eachDefaultSystem (system: let
+  outputs =
+    { nixpkgs
+    , flake-utils
+    , dream2nix
+    , ...
+    }:
+    let
+      inherit (nixpkgs.lib) optional concatStringsSep;
+      systems = flake-utils.lib.system;
+    in
+    flake-utils.lib.eachDefaultSystem (system:
+    let
       pkgs = import nixpkgs {
         inherit system;
       };
 
-      aarch64DarwinExternalCargoCrates = concatStringsSep " " ["cargo-instruments@0.4.8"];
+      aarch64DarwinExternalCargoCrates = concatStringsSep " " [ "cargo-instruments@0.4.8" ];
 
       defaultShellConf = {
         nativeBuildInputs = with pkgs;
@@ -84,7 +88,15 @@
           fi
         '';
       };
-    in {
+    in
+    {
       devShells.default = pkgs.mkShell defaultShellConf;
+
+      packages = dream2nix.lib.importPackages {
+        projectRoot = ./.;
+        projectRootFile = "flake.nix";
+        packagesDir = ./nix/packages;
+        packageSets.nixpkgs = pkgs;
+      };
     });
 }
