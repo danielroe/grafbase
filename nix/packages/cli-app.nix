@@ -11,8 +11,6 @@
 
   mkDerivation = {
     src = ../../packages/cli-app;
-    buildPhase = ''
-      npm run cli-app:build
-    '';
+    buildPhase = "npm run cli-app:build";
   };
 }

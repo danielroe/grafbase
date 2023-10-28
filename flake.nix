@@ -93,15 +93,18 @@
           fi
         '';
       };
+
+      evalPackage = { name, extraArgs ? { } }: dream2nix.lib.evalModules ({
+        modules = [{ _module.args = extraArgs; } (./nix/packages + "/${name}.nix")];
+        packageSets.nixpkgs = pkgs;
+      });
+
+      cli-app = evalPackage { name = "cli-app"; };
+      cli = evalPackage { name = "cli"; extraArgs = { inherit cli-app; }; };
     in
     {
       devShells.default = pkgs.mkShell defaultShellConf;
 
-      packages = dream2nix.lib.importPackages {
-        projectRoot = ./.;
-        projectRootFile = "flake.nix";
-        packagesDir = ./nix/packages;
-        packageSets.nixpkgs = pkgs;
-      };
+      packages = { inherit cli cli-app; };
     });
 }
