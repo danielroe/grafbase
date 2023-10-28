@@ -4,7 +4,7 @@ use std::{env, fs, io, path::Path, time};
 
 /// Env var name
 const GRAFBASE_CLI_PATHFINDER_BUNDLE_PATH: &str = "GRAFBASE_CLI_PATHFINDER_BUNDLE_PATH";
-const ASSETS_GZIP_PATH: &str = "./assets/assets.tar.gz";
+const ASSETS_GZIP_PATH: &str = option_env!("GRAFBASE_CLI_ASSETS_GZIP_PATH").unwrap_or("./assets/assets.tar.gz");
 
 /// The path to the contents of the dist/ folder of a successful build of cli-app.
 fn find_pathfinder_bundle_location() -> String {
