@@ -1,0 +1,20 @@
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.3",
+    import: ["@key"]
+  )
+
+type Query {
+  getUser(id: ID!): User
+  listUsers(first: Int!): [User!]!
+}
+
+type User @key(fields: "id") {
+  id: ID!
+  name: String!
+  age: Int!
+}
+
+enum EventType {
+  USER_EVENT
+}

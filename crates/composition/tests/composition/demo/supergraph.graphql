@@ -1,0 +1,26 @@
+type Query {
+    personalizedEventsNearYou(yourUserId: ID, yourLocation: Location): Event
+    getNearestLocations(point: Location): Location
+    getUser(id: ID): User
+    listUsers(first: Int): User
+}
+type Event {
+    type: EventType
+    description: String
+}
+enum EventType {
+  PARTY
+  RIOT
+  NATURAL_CATASTROPHE
+  USER_EVENT
+}
+type Location {
+    x: Float
+    y: Float
+}
+type User {
+    id: ID
+    location: Location
+    name: String
+    age: Int
+}

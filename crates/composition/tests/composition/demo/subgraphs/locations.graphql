@@ -1,0 +1,19 @@
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.3",
+    import: ["@key", "@shareable"]
+  )
+
+type Query {
+  getNearestLocations(point: Location): [Location!]!
+}
+
+type User @key(fields: "id") {
+  id: ID!
+  location: Location
+}
+
+type Location @shareable {
+  x: Float!
+  y: Float!
+}
