@@ -1,12 +1,8 @@
 scalar Yan
-
 scalar Tan
-
 scalar Texture
-
-scalar Tethera
-
 type Sheep {
-    texture: Texture!
+    texture: Texture
     sheepIdx: Tethera
 }
+scalar Tethera
